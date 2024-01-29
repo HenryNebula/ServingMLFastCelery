@@ -1,31 +1,14 @@
 import requests
-from time import sleep
+from time import sleep, time
+import json
+from pathlib import Path
+from copy import deepcopy
+import concurrent.futures
+from concurrent.futures import ThreadPoolExecutor
+from statistics import mean
 
-test_body = {
-    "Customer_Age": 45,
-    "Gender": "M",
-    "Dependent_count": 3,
-    "Education_Level": "High School",
-    "Marital_Status": "Married",
-    "Income_Category": "$60K - $80K",
-    "Card_Category": "Blue",
-    "Months_on_book": 39,
-    "Total_Relationship_Count": 5,
-    "Months_Inactive_12_mon": 1,
-    "Contacts_Count_12_mon": 3,
-    "Credit_Limit": 12691,
-    "Total_Revolving_Bal": 777,
-    "Avg_Open_To_Buy": 11914,
-    "Total_Amt_Chng_Q4_Q1": 1.335,
-    "Total_Trans_Amt": 1144,
-    "Total_Trans_Ct": 42,
-    "Total_Ct_Chng_Q4_Q1": 1.625,
-    "Avg_Utilization_Ratio": 0.061
-}
-
-
-def dummy_task(data, poll_interval=5, max_attempts=5):
-    base_uri = r'http://127.0.0.1:8000'
+def dummy_task(data, poll_interval=0.05, max_attempts=10):
+    base_uri = r'http://localhost:8086'
     predict_task_uri = base_uri + '/churn/predict'
     task = requests.post(predict_task_uri, json=data)
     task_id = task.json()['task_id']
@@ -38,10 +21,76 @@ def dummy_task(data, poll_interval=5, max_attempts=5):
         if result_response.status_code == 200:
             result = result_response.json()['probability']
             break
+        # print(result_response.json())
+        sleep(poll_interval)
+    return result
+
+
+def dummy_classification_task(data, poll_interval=0.05, max_attempts=10):
+    base_uri = r'http://localhost:8086'
+    predict_task_uri = base_uri + '/news/predict'
+    task = requests.post(predict_task_uri, json={"content": data})
+    task_id = task.json()['task_id']
+    predict_result_uri = base_uri + '/news/result/' + task_id
+    attempts = 0
+    result = None
+    while attempts < max_attempts:
+        attempts += 1
+        result_response = requests.get(predict_result_uri)
+        if result_response.status_code == 200:
+            result = result_response.json()['probability']
+            break
+        # print(result_response.json())
         sleep(poll_interval)
     return result
 
 
 if __name__ == '__main__':
-    prediction = dummy_task(test_body)
-    print(prediction)
+    
+    # with open(Path(__file__).parent / 'data/sample.json') as f:
+    #     test_body = json.load(f)[0]
+
+    #     num = 1000
+    #     batches = []
+    #     for i in range(num):
+    #         body = deepcopy(test_body)
+    #         body["Total_Trans_Amt"] = i + 1
+    #         batches.append(body)
+
+    with open(Path(__file__).parent / 'data/news_sample.json') as f:
+        batches = json.load(f)
+
+    print(f"Total batches: {len(batches)}")
+
+    results = []
+    t_0 = time()
+
+    poll_interval = 0.25
+    max_attempts = 10 // poll_interval
+    with ThreadPoolExecutor(max_workers=4) as executor:
+        future_to_input = {
+            executor.submit(dummy_classification_task, batch, poll_interval=poll_interval, max_attempts=max_attempts): 
+            batch 
+            for batch in batches
+        }
+        cnt = 0
+        for future in concurrent.futures.as_completed(future_to_input):
+            
+            batch = future_to_input[future]
+            try:
+                result = future.result()
+            except Exception as exc:
+                print('%r generated an exception (type: (%s)): %s' % (batch, type(exc), exc))
+            else:
+                results.append(result)
+            
+            cnt += 1
+            if cnt % int(0.1 * len(batches)) == 0:
+                print(f"Progress: {cnt / len(batches) * 100: .2f}% within {time() - t_0: .1f}s")
+
+    t_final = time() - t_0
+    assert len(results) == len(batches), f"Only got {len(results)} results, expected {len(batches)}"
+    assert all([r is not None for r in results]), f"Got None in results: {results}"
+
+    print(f"Average inference time: {t_final / len(batches): .3f}s")
+    print(f"Average prediction: {mean(results): .3f}")
