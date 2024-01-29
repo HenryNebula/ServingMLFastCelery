@@ -30,6 +30,17 @@ class PredictTask(Task):
         return self.run(*args, **kwargs)
 
 
+class ClassificationTask(PredictTask):
+    """
+    Abstraction of Celery's Task class to support loading ML model.
+
+    """
+    abstract = True
+
+    def __init__(self):
+        super().__init__()
+
+
 @app.task(ignore_result=False,
           bind=True,
           base=PredictTask,
@@ -40,5 +51,16 @@ def predict_churn_single(self, data):
     Essentially the run method of PredictTask
     """
     pred_array = self.model.predict([data])
+    positive_prob = pred_array[0][-1]
+    return positive_prob
+
+
+@app.task(ignore_result=False,
+          bind=True,
+          base=ClassificationTask,
+          path=('celery_task_app.ml.model', 'Classifier'),
+          name='{}.{}'.format(__name__, 'Classifier'))
+def predict_classification_label(self, data):
+    pred_array = self.model.predict(data)
     positive_prob = pred_array[0][-1]
     return positive_prob
