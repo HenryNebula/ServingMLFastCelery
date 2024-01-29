@@ -1,0 +1,7 @@
+celery[redis]
+joblib
+lightgbm --config-setting="--install-option=--nomp"
+scikit-learn==1.2.2
+numpy
+pandas
+sentence-transformers==2.2.2
