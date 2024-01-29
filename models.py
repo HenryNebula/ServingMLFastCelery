@@ -1,4 +1,5 @@
 from pydantic import BaseModel
+from typing import List, Union
 
 
 class Customer(BaseModel):
@@ -35,3 +36,6 @@ class Prediction(BaseModel):
     task_id: str
     status: str
     probability: float
+
+class News(BaseModel):
+    content: Union[List[str], str]
