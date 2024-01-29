@@ -1,0 +1,42 @@
+version: '3.9'
+services:
+  redis:
+    image: redis
+    restart: always
+    ports:
+      - 6379:6379
+    volumes:
+      - ./data/redis:/redis
+    deploy:
+      resources:
+        limits:
+          memory: 256m
+  task:
+    build:
+      context: .
+      dockerfile: ./ops/celery.Dockerfile
+    env_file:
+      - ./ops/.env
+    volumes:
+      - ./data:/app/data
+    depends_on:
+      - redis
+    deploy:
+      resources:
+        limits:
+          memory: 1024m
+  web:
+    build:
+      context: .
+      dockerfile: ./ops/api.Dockerfile
+    env_file:
+      - ./ops/.env
+    ports:
+      - 8086:8000
+    deploy:
+      resources:
+        limits:
+          memory: 256m # try to make it small
+    depends_on:
+      - redis
+      - task
